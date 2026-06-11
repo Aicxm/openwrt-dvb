@@ -24,16 +24,23 @@ jobs:
         with:
           path: openwrt-sdk/package/openwrt-dvb
 
-      - name: Init Feeds & Default Config
+      - name: Init Feeds & Enable DVB package
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
+          # 强制启用 v4l-dvb 包
+          echo "CONFIG_PACKAGE_v4l-dvb=y" >> .config
+          make defconfig
 
-      - name: Compile & Build IPK
+      - name: Compile source
         working-directory: openwrt-sdk
-        run: make package/openwrt-dvb/v4l-dvb/install V=s -j$(nproc)
+        run: make package/openwrt-dvb/v4l-dvb/compile V=s
+
+      - name: Install & Generate IPK
+        working-directory: openwrt-sdk
+        run: make package/openwrt-dvb/v4l-dvb/install V=s
 
       - name: Upload IPK Artifact
         uses: actions/upload-artifact@v4
