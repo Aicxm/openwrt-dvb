@@ -1,15 +1,19 @@
-name: DVB Driver CI (OpenWrt SDK)
+name: DVB Driver Build Test (OpenWrt 22.03 SDK)
 
 on:
-  workflow_dispatch: # 允许在 GitHub 页面手动触发构建
+  # 可按需调整触发条件，比如仅在PR或手动触发
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
-  build-dvb-driver:
+  build-test:
     runs-on: ubuntu-22.04
     steps:
-      - name: Download OpenWrt 22.03 x86_64 SDK
+      - name: Download OpenWrt 22.03.5 x86_64 SDK
         run: |
-          # 下载官方 SDK（22.03.5 是当前 22.03 最新稳定版，可按需替换）
           wget -O openwrt-sdk.tar.xz https://downloads.openwrt.org/releases/22.03.5/targets/x86/64/openwrt-sdk-22.03.5-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk.tar.xz
           mv openwrt-sdk-* openwrt-sdk
@@ -19,21 +23,20 @@ jobs:
         with:
           path: openwrt-sdk/package/openwrt-dvb
 
-      - name: Prepare SDK environment
+      - name: Prepare SDK feeds
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Compile DVB driver
+      - name: Compile DVB driver IPK
         working-directory: openwrt-sdk
         run: |
-          # 只编译你 fork 的驱动包，生成 IPK
           make package/openwrt-dvb/v4l-dvb/compile V=s -j$(nproc)
 
       - name: Upload compiled IPK packages
         uses: actions/upload-artifact@v4
         with:
-          name: dvb-driver-ipk
+          name: dvb-driver-test-ipk
           path: openwrt-sdk/bin/packages/x86_64/base/*.ipk
           retention-days: 30
