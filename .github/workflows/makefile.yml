@@ -1,4 +1,4 @@
-name: OpenWrt DVB Driver CI
+name: OpenWrt DVB Driver - Extract KO
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -24,27 +24,27 @@ jobs:
         with:
           path: openwrt-sdk/package/openwrt-dvb
 
-      - name: Init Feeds & Enable DVB package
+      - name: Init Feeds & Default Config
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          make defconfig
-          # 强制启用 v4l-dvb 包
-          echo "CONFIG_PACKAGE_v4l-dvb=y" >> .config
           make defconfig
 
       - name: Compile source
         working-directory: openwrt-sdk
         run: make package/openwrt-dvb/v4l-dvb/compile V=s
 
-      - name: Install & Generate IPK
+      # 收集所有 dvb/tbs 相关 .ko
+      - name: Collect KO files
         working-directory: openwrt-sdk
-        run: make package/openwrt-dvb/v4l-dvb/install V=s
+        run: |
+          mkdir -p ko_output
+          find build_dir/ -name "*.ko" -path "*/v4l-dvb*" | xargs cp -t ko_output/
 
-      - name: Upload IPK Artifact
+      - name: Upload KO files
         uses: actions/upload-artifact@v4
         with:
-          name: dvb-driver-ipk
-          path: openwrt-sdk/bin/packages/x86_64/base/*.ipk
+          name: tbs-dvb-ko-files
+          path: openwrt-sdk/ko_output/
           retention-days: 30
