@@ -1,126 +1,39 @@
-name: OpenWrt DVB feed buildbot
+name: DVB Driver CI (OpenWrt SDK)
 
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-  workflow_dispatch:
+  workflow_dispatch: # 允许在 GitHub 页面手动触发构建
 
 jobs:
-  prepare:
-    name: Prepare source
-    runs-on: ubuntu-latest
-
+  build-dvb-driver:
+    runs-on: ubuntu-22.04
     steps:
-      - name: Cache sources
-        uses: actions/cache/restore@v3
-        with:
-          key: downloads
-          path: |
-            sdk/dl
-            sdk/feeds
-
-      - name: Download sources
+      - name: Download OpenWrt 22.03 x86_64 SDK
         run: |
-          printenv | sort
-          SDK_TAR="$(curl -s https://downloads.openwrt.org/snapshots/targets/tegra/generic/sha256sums | awk -F'*' '/openwrt-sdk/ {printf $2}')"
-          git clone --depth 1 ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git sdk/package
-          curl -O https://downloads.openwrt.org/snapshots/targets/tegra/generic/${SDK_TAR}
-          tar -x -J --strip-components=1 -f ${SDK_TAR} -C "$(pwd)/sdk"
-          mkdir -p sdk/dl sdk/feeds
-          cd sdk
-          make defconfig
-          make -j$(nproc) V=s download
-          make -j$(nproc) V=s package/v4l-dvb/{prepare,clean}
-          rm -f -R dl/*/
-          scripts/feeds update -a
+          # 下载官方 SDK（22.03.5 是当前 22.03 最新稳定版，可按需替换）
+          wget -O openwrt-sdk.tar.xz https://downloads.openwrt.org/releases/22.03.5/targets/x86/64/openwrt-sdk-22.03.5-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
+          tar -xf openwrt-sdk.tar.xz
+          mv openwrt-sdk-* openwrt-sdk
 
-  build:
-    name: Build targets
-    needs: prepare
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - apm821xx-nand
-          - armvirt-32
-          - ath79-generic
-          - mpc85xx-p1010
-          - ramips-mt7621
-          - mvebu-cortexa53
-          - mvebu-cortexa9
-          - x86-64
-          - x86-geode
+      - name: Checkout your openwrt-dvb repo
+        uses: actions/checkout@v4
+        with:
+          path: openwrt-sdk/package/openwrt-dvb
 
-    env:
-      TARGET: ${{ matrix.target }}
-
-    steps:
-      - name: Prepare project
+      - name: Prepare SDK environment
+        working-directory: openwrt-sdk
         run: |
-          SDK_TAR="$(curl -s https://downloads.openwrt.org/snapshots/targets/${TARGET/-/\/}/sha256sums | awk -F'*' '/openwrt-sdk/ {printf $2}')"
-          git clone --depth 1 ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git sdk/package
-          curl -O https://downloads.openwrt.org/snapshots/targets/${TARGET/-/\/}/${SDK_TAR}
-          tar -x -J --strip-components=1 -f ${SDK_TAR} -C "$(pwd)/sdk"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: Cache sources
-        uses: actions/cache@v3
-        with:
-          key: downloads
-          path: |
-            sdk/dl
-            sdk/feeds
-
-      - name: Build packages
+      - name: Compile DVB driver
+        working-directory: openwrt-sdk
         run: |
-          mkdir -p sdk/bin sdk/dl sdk/feeds
-          cd sdk
-          printf "CONFIG_BUILD_LOG=y\nCONFIG_SIGNED_PACKAGES=n\n" >> .config
-          make defconfig
-          make -j$(nproc) V=s
+          # 只编译你 fork 的驱动包，生成 IPK
+          make package/openwrt-dvb/v4l-dvb/compile V=s -j$(nproc)
 
-      - name: Store logs
-        if: always()
-        uses: actions/upload-artifact@v3
+      - name: Upload compiled IPK packages
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.target }}-${{ github.sha }}-logs
-          path: sdk/logs/
-          retention-days: 60
-
-      - name: Store packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ matrix.target }}-pkgs
-          path: sdk/bin/
-          retention-days: 1
-
-  deploy:
-    name: Upload packages
-    needs: build
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
-
-    steps:
-      - name: Restore packages
-        uses: actions/download-artifact@v3
-        with:
-          path: bin
-
-      - name: Publish packages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-        run: |
-          git clone --depth 1 --branch gh-pages ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git repo || true
-          rm -R -f repo/snapshots
-          mkdir -p repo/snapshots
-          cp -R -f bin/*-pkgs/. repo/snapshots/.
-          cd repo
-          git update-ref -d HEAD
-          git config --local user.name "github-actions[bot]"
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "Publish ${GITHUB_WORKFLOW_SHA} packages"
-          git push -f https://${GITHUB_REPOSITORY_OWNER}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git gh-pages
+          name: dvb-driver-ipk
+          path: openwrt-sdk/bin/packages/x86_64/base/*.ipk
+          retention-days: 30
