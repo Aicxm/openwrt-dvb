@@ -1,4 +1,7 @@
 name: OpenWrt DVB Driver CI
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches: [ "master" ]
@@ -26,13 +29,12 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 生成默认配置（非交互，解决终端/类型警告）
           make defconfig
 
-      - name: Compile DVB Driver
+      - name: Compile & Package DVB Driver
         working-directory: openwrt-sdk
-        # 修复：英文括号 $(nproc) + 纯编译，跳过交互配置
-        run: make package/openwrt-dvb/v4l-dvb/compile V=s -j$(nproc)
+        # 核心改动：compile 改为 package，自动打包ipk
+        run: make package/openwrt-dvb/v4l-dvb/package V=s -j$(nproc)
 
       - name: Upload IPK Artifact
         uses: actions/upload-artifact@v4
