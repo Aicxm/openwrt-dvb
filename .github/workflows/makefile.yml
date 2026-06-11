@@ -31,10 +31,9 @@ jobs:
           ./scripts/feeds install -a
           make defconfig
 
-      - name: Compile & Package DVB Driver
+      - name: Compile & Build IPK
         working-directory: openwrt-sdk
-        # 核心改动：compile 改为 package，自动打包ipk
-        run: make package/openwrt-dvb/v4l-dvb/package V=s -j$(nproc)
+        run: make package/openwrt-dvb/v4l-dvb/install V=s -j$(nproc)
 
       - name: Upload IPK Artifact
         uses: actions/upload-artifact@v4
