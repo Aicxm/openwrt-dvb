@@ -1,9 +1,10 @@
-name: DVB Driver CI (OpenWrt 22.03 SDK)
-
+name: OpenWrt DVB Driver CI
 on:
   push:
     branches: [ "master" ]
-  workflow_dispatch: # 允许手动在GitHub页面触发构建
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
   build-dvb-driver:
@@ -15,23 +16,25 @@ jobs:
           tar -xf openwrt-sdk.tar.xz
           mv openwrt-sdk-* openwrt-sdk
 
-      - name: Checkout your openwrt-dvb repo
+      - name: Checkout DVB Source
         uses: actions/checkout@v4
         with:
           path: openwrt-sdk/package/openwrt-dvb
 
-      - name: Prepare SDK feeds
+      - name: Init Feeds & Default Config
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 生成默认配置（非交互，解决终端/类型警告）
+          make defconfig
 
-      - name: Compile DVB driver IPK
+      - name: Compile DVB Driver
         working-directory: openwrt-sdk
-        run: |
-          make package/openwrt-dvb/v4l-dvb/compile V=s -j$(nproc)
+        # 修复：英文括号 $(nproc) + 纯编译，跳过交互配置
+        run: make package/openwrt-dvb/v4l-dvb/compile V=s -j$(nproc)
 
-      - name: Upload compiled IPK packages
+      - name: Upload IPK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: dvb-driver-ipk
