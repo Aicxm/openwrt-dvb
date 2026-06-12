@@ -29,23 +29,29 @@ jobs:
         with:
           path: openwrt-sdk/package/openwrt-dvb
 
-      - name: Init Feeds & Full Config
+      - name: Init Feeds & Configure
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
-          echo "CONFIG_KMOD_VIDEO_CORE=y" >> .config
-          echo "CONFIG_KMOD_VIDEO_VIDEOBUF2=y" >> .config
-          echo "CONFIG_KMOD_VIDEO_V4L2=y" >> .config
-          echo "CONFIG_KMOD_DVB_CORE=y" >> .config
-          echo "CONFIG_KMOD_MEDIA_SUPPORT=y" >> .config
+          # 使用更安全的方式开启配置，避免冲突
+          echo "CONFIG_ALL_KMODS=y" >> .config
+          make olddefconfig
+          # 单独开启 Multimedia 相关模块
+          ./scripts/menuconfig.sh <<EOF
+          CONFIG_KMOD_VIDEO_CORE=y
+          CONFIG_KMOD_VIDEO_VIDEOBUF2=y
+          CONFIG_KMOD_VIDEO_V4L2=y
+          CONFIG_KMOD_DVB_CORE=y
+          CONFIG_KMOD_MEDIA_SUPPORT=y
+          EOF
           make olddefconfig
 
       - name: Compile v4l-dvb & TBS driver
         working-directory: openwrt-sdk
         run: |
-          make package/openwrt-dvb/v4l-dvb/compile V=s
+          make -j1 package/openwrt-dvb/v4l-dvb/compile V=s
 
       - name: Collect all DVB/TBS related KO files
         working-directory: openwrt-sdk
