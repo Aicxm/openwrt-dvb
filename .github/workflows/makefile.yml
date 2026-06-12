@@ -3,7 +3,11 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:  # 支持在 Actions 页面手动触发
 
 jobs:
   build-dvb-driver:
@@ -31,7 +35,7 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
-          # 生成临时配置文件
+          # 生成临时配置文件（用单引号 EOF 避免 YAML 解析错误）
           cat > .config.tmp <<'EOF'
 CONFIG_KMOD_VIDEO_CORE=y
 CONFIG_KMOD_VIDEO_VIDEOBUF2=y
@@ -39,7 +43,7 @@ CONFIG_KMOD_VIDEO_V4L2=y
 CONFIG_KMOD_DVB_CORE=y
 CONFIG_KMOD_MEDIA_SUPPORT=y
 EOF
-          # 合并配置
+          # 用官方工具安全合并配置
           ./scripts/merge_config.sh .config .config.tmp
           make olddefconfig
 
