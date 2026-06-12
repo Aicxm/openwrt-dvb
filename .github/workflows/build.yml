@@ -1,4 +1,4 @@
-name: OpenWrt DVB Driver - Extract KO
+name: OpenWrt DVB Driver - Direct KO Build
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -20,36 +20,37 @@ jobs:
           tar -xf openwrt-sdk.tar.xz
           mv openwrt-sdk-* openwrt-sdk
 
-      - name: Checkout DVB & TBS Source
+      - name: Checkout TBS driver source
         uses: actions/checkout@v4
         with:
-          path: openwrt-sdk/package/openwrt-dvb
+          path: tbs-driver
 
-      - name: Init Feeds
+      - name: Prepare build environment
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 只做一次 defconfig，不做任何额外配置修改
           make defconfig
+          export STAGING_DIR=$(pwd)/staging_dir
+          export PATH=$STAGING_DIR/toolchain-x86_64_gcc-11.2.0_musl/bin:$PATH
+          export KERNEL_DIR=$(pwd)/build_dir/target-x86_64_musl/linux-x86_64/linux-5.10.221
+          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
 
-      - name: Compile v4l-dvb & TBS driver (skip olddefconfig)
-        working-directory: openwrt-sdk
+      - name: Build TBS driver directly
+        working-directory: tbs-driver
         run: |
-          # 直接编译驱动包，不再调用 olddefconfig
-          make -j1 package/openwrt-dvb/v4l-dvb/compile V=sc
+          make -C $KERNEL_DIR M=$(pwd) modules ARCH=x86_64 CROSS_COMPILE=x86_64-openwrt-linux-musl-
 
-      - name: Collect all DVB/TBS related KO files
-        working-directory: openwrt-sdk
+      - name: Collect KO files
         run: |
           mkdir -p ko_output
-          find build_dir/ -name "*.ko" -path "*/v4l-dvb*" | xargs cp -t ko_output/
-          # 额外复制 SDK 自带的基础模块
-          find staging_dir/ -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/
+          find tbs-driver -name "*.ko" -exec cp {} ko_output/ \;
+          # 复制 SDK 自带的基础模块
+          find openwrt-sdk/staging_dir -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/
 
       - name: Upload KO artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tbs-dvb-ko-matched
-          path: openwrt-sdk/ko_output/
+          path: ko_output/
           retention-days: 30
