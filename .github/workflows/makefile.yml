@@ -13,38 +13,50 @@ jobs:
   build-dvb-driver:
     runs-on: ubuntu-22.04
     steps:
-      - name: Download OpenWrt 22.03.5 x86_64 SDK
+      - name: Install base dependencies
         run: |
-          wget -O openwrt-sdk.tar.xz https://downloads.openwrt.org/releases/22.03.5/targets/x86/64/openwrt-sdk-22.03.5-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
+          sudo apt update
+          sudo apt install -y build-essential libncurses-dev gawk flex bison unzip rsync
+
+      - name: Download OpenWrt 22.03.7 x86_64 SDK
+        run: |
+          wget -O openwrt-sdk.tar.xz https://downloads.openwrt.org/releases/22.03.7/targets/x86/64/openwrt-sdk-22.03.7-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk.tar.xz
           mv openwrt-sdk-* openwrt-sdk
 
-      - name: Checkout DVB Source
+      - name: Checkout DVB & TBS Source
         uses: actions/checkout@v4
         with:
           path: openwrt-sdk/package/openwrt-dvb
 
-      - name: Init Feeds & Default Config
+      - name: Init Feeds & Full Config
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
+          echo "CONFIG_KMOD_VIDEO_CORE=y" >> .config
+          echo "CONFIG_KMOD_VIDEO_VIDEOBUF2=y" >> .config
+          echo "CONFIG_KMOD_VIDEO_V4L2=y" >> .config
+          echo "CONFIG_KMOD_DVB_CORE=y" >> .config
+          echo "CONFIG_KMOD_MEDIA_SUPPORT=y" >> .config
+          make olddefconfig
 
-      - name: Compile source
+      - name: Compile v4l-dvb & TBS driver
         working-directory: openwrt-sdk
-        run: make package/openwrt-dvb/v4l-dvb/compile V=s
+        run: |
+          make package/openwrt-dvb/v4l-dvb/compile V=s
 
-      # 收集所有 dvb/tbs 相关 .ko
-      - name: Collect KO files
+      - name: Collect all DVB/TBS related KO files
         working-directory: openwrt-sdk
         run: |
           mkdir -p ko_output
           find build_dir/ -name "*.ko" -path "*/v4l-dvb*" | xargs cp -t ko_output/
+          find staging_dir/ -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/
 
-      - name: Upload KO files
+      - name: Upload KO artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tbs-dvb-ko-files
+          name: tbs-dvb-ko-matched
           path: openwrt-sdk/ko_output/
           retention-days: 30
