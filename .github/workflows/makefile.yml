@@ -1,0 +1,42 @@
+name: OpenWrt DVB Driver CI
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-dvb-driver:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download OpenWrt 22.03.5 x86_64 SDK
+        run: |
+          wget -O openwrt-sdk.tar.xz https://downloads.openwrt.org/releases/22.03.5/targets/x86/64/openwrt-sdk-22.03.5-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
+          tar -xf openwrt-sdk.tar.xz
+          mv openwrt-sdk-* openwrt-sdk
+
+      - name: Checkout DVB Source
+        uses: actions/checkout@v4
+        with:
+          path: openwrt-sdk/package/openwrt-dvb
+
+      - name: Init Feeds & Default Config
+        working-directory: openwrt-sdk
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          # 生成默认配置（非交互，解决终端/类型警告）
+          make defconfig
+
+      - name: Compile DVB Driver
+        working-directory: openwrt-sdk
+        # 修复：英文括号 $(nproc) + 纯编译，跳过交互配置
+        run: make package/openwrt-dvb/v4l-dvb/compile V=s -j$(nproc)
+
+      - name: Upload IPK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dvb-driver-ipk
+          path: openwrt-sdk/bin/packages/x86_64/base/*.ipk
+          retention-days: 30
