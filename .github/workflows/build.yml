@@ -31,22 +31,39 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
+          # 导出正确的环境变量
           export STAGING_DIR=$(pwd)/staging_dir
-          export PATH=$STAGING_DIR/toolchain-x86_64_gcc-11.2.0_musl/bin:$PATH
-          export KERNEL_DIR=$(pwd)/build_dir/target-x86_64_musl/linux-x86_64/linux-5.10.221
+          export TOOLCHAIN_DIR=$(find $STAGING_DIR -maxdepth 1 -type d -name "toolchain-*x86_64*musl")
+          export PATH=$TOOLCHAIN_DIR/bin:$PATH
+          export KERNEL_DIR=$(find build_dir/target-*/linux-x86_64 -maxdepth 1 -type d -name "linux-5.10.221")
+          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
           echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=$(basename $TOOLCHAIN_DIR/bin/*-gcc | sed 's/-gcc$//')-" >> $GITHUB_ENV
+
+      - name: Verify cross compiler
+        run: |
+          echo "Cross compiler: ${{ env.CROSS_COMPILE }}gcc"
+          which ${{ env.CROSS_COMPILE }}gcc || echo "Compiler not found!"
 
       - name: Build TBS driver directly
         working-directory: tbs-driver
         run: |
-          make -C $KERNEL_DIR M=$(pwd) modules ARCH=x86_64 CROSS_COMPILE=x86_64-openwrt-linux-musl-
+          # 检查 Makefile 是否存在
+          if [ ! -f Makefile ]; then
+            echo "ERROR: Makefile not found in $(pwd)"
+            ls -la
+            exit 1
+          fi
+          make -C ${{ env.KERNEL_DIR }} M=$(pwd) modules \
+            ARCH=x86_64 \
+            CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
+            V=1
 
       - name: Collect KO files
         run: |
           mkdir -p ko_output
           find tbs-driver -name "*.ko" -exec cp {} ko_output/ \;
-          # 复制 SDK 自带的基础模块
-          find openwrt-sdk/staging_dir -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/
+          find openwrt-sdk/staging_dir -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/ 2>/dev/null || true
 
       - name: Upload KO artifacts
         uses: actions/upload-artifact@v4
