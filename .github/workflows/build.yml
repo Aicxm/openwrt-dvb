@@ -1,4 +1,4 @@
-name: OpenWrt DVB Driver - Direct KO Build
+name: OpenWrt DVB Driver - KO Builder
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -6,61 +6,47 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-dvb-driver:
+  build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Install base dependencies
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential libncurses-dev gawk flex bison unzip rsync
+          sudo apt install -y build-essential libncurses-dev gawk flex bison unzip rsync file
 
-      - name: Download OpenWrt 22.03.7 x86_64 SDK
+      - name: Download OpenWrt 22.03.7 SDK
         run: |
           wget -O openwrt-sdk.tar.xz https://downloads.openwrt.org/releases/22.03.7/targets/x86/64/openwrt-sdk-22.03.7-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk.tar.xz
           mv openwrt-sdk-* openwrt-sdk
+          cd openwrt-sdk && ls -la
 
-      - name: Checkout source
+      - name: Checkout driver source
         uses: actions/checkout@v4
         with:
           path: source
 
-      - name: Prepare build environment
+      - name: Init SDK & build v4l-dvb
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
-          export STAGING_DIR=$(pwd)/staging_dir
-          export TOOLCHAIN_DIR=$(find $STAGING_DIR -maxdepth 1 -type d -name "toolchain-*x86_64*musl")
-          export PATH=$TOOLCHAIN_DIR/bin:$PATH
-          export KERNEL_DIR=$(find build_dir/target-*/linux-x86_64 -maxdepth 1 -type d -name "linux-5.10.221")
-          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
-          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=$(basename $TOOLCHAIN_DIR/bin/*-gcc | sed 's/-gcc$//')-" >> $GITHUB_ENV
-
-      - name: Verify cross compiler
-        run: |
-          echo "Cross compiler: ${{ env.CROSS_COMPILE }}gcc"
-          which ${{ env.CROSS_COMPILE }}gcc || echo "Compiler not found!"
-
-      - name: Build TBS driver in v4l-dvb
-        working-directory: source/v4l-dvb
-        run: |
-          make -C ${{ env.KERNEL_DIR }} M=$(pwd) modules \
-            ARCH=x86_64 \
-            CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
-            V=1
+          # 直接编译 v4l-dvb 包，SDK 会自动处理所有依赖
+          make -j1 package/feeds/packages/v4l-dvb/compile V=sc
 
       - name: Collect KO files
+        working-directory: openwrt-sdk
         run: |
-          mkdir -p ko_output
-          find source/v4l-dvb -name "*.ko" -exec cp {} ko_output/ \;
-          find openwrt-sdk/staging_dir -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/ 2>/dev/null || true
+          mkdir -p ../ko_output
+          # 从编译结果中提取所有 ko 文件
+          find build_dir/ -name "*.ko" -path "*/v4l-dvb*" | xargs cp -t ../ko_output/ || true
+          # 复制 SDK 自带的基础模块
+          find staging_dir/target-*/root/lib/modules/ -name "*.ko" -exec cp {} ../ko_output/ \; 2>/dev/null || true
 
       - name: Upload KO artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tbs-dvb-ko-matched
+          name: tbs-dvb-ko-final
           path: ko_output/
           retention-days: 30
