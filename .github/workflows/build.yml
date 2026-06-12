@@ -20,10 +20,10 @@ jobs:
           tar -xf openwrt-sdk.tar.xz
           mv openwrt-sdk-* openwrt-sdk
 
-      - name: Checkout TBS driver source
+      - name: Checkout source
         uses: actions/checkout@v4
         with:
-          path: tbs-driver
+          path: source
 
       - name: Prepare build environment
         working-directory: openwrt-sdk
@@ -31,7 +31,6 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
-          # 导出正确的环境变量
           export STAGING_DIR=$(pwd)/staging_dir
           export TOOLCHAIN_DIR=$(find $STAGING_DIR -maxdepth 1 -type d -name "toolchain-*x86_64*musl")
           export PATH=$TOOLCHAIN_DIR/bin:$PATH
@@ -45,15 +44,9 @@ jobs:
           echo "Cross compiler: ${{ env.CROSS_COMPILE }}gcc"
           which ${{ env.CROSS_COMPILE }}gcc || echo "Compiler not found!"
 
-      - name: Build TBS driver directly
-        working-directory: tbs-driver
+      - name: Build TBS driver in v4l-dvb
+        working-directory: source/v4l-dvb
         run: |
-          # 检查 Makefile 是否存在
-          if [ ! -f Makefile ]; then
-            echo "ERROR: Makefile not found in $(pwd)"
-            ls -la
-            exit 1
-          fi
           make -C ${{ env.KERNEL_DIR }} M=$(pwd) modules \
             ARCH=x86_64 \
             CROSS_COMPILE=${{ env.CROSS_COMPILE }} \
@@ -62,7 +55,7 @@ jobs:
       - name: Collect KO files
         run: |
           mkdir -p ko_output
-          find tbs-driver -name "*.ko" -exec cp {} ko_output/ \;
+          find source/v4l-dvb -name "*.ko" -exec cp {} ko_output/ \;
           find openwrt-sdk/staging_dir -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/ 2>/dev/null || true
 
       - name: Upload KO artifacts
