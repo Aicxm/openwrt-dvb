@@ -1,4 +1,4 @@
-name: OpenWrt DVB Driver - KO Builder
+name: OpenWrt DVB Driver - Extract KO
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -6,47 +6,50 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-dvb-driver:
     runs-on: ubuntu-22.04
     steps:
-      - name: Install dependencies
+      - name: Install base dependencies
         run: |
           sudo apt update
-          sudo apt install -y build-essential libncurses-dev gawk flex bison unzip rsync file
+          sudo apt install -y build-essential libncurses-dev gawk flex bison unzip rsync
 
-      - name: Download OpenWrt 22.03.7 SDK
+      - name: Download OpenWrt 22.03.7 x86_64 SDK
         run: |
           wget -O openwrt-sdk.tar.xz https://downloads.openwrt.org/releases/22.03.7/targets/x86/64/openwrt-sdk-22.03.7-x86-64_gcc-11.2.0_musl.Linux-x86_64.tar.xz
           tar -xf openwrt-sdk.tar.xz
           mv openwrt-sdk-* openwrt-sdk
-          cd openwrt-sdk && ls -la
 
-      - name: Checkout driver source
+      - name: Checkout DVB & TBS Source
         uses: actions/checkout@v4
         with:
-          path: source
+          path: openwrt-sdk/package/openwrt-dvb
 
-      - name: Init SDK & build v4l-dvb
+      - name: Init Feeds
         working-directory: openwrt-sdk
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 只做一次 defconfig，不做任何额外配置修改
           make defconfig
-          # 直接编译 v4l-dvb 包，SDK 会自动处理所有依赖
-          make -j1 package/feeds/packages/v4l-dvb/compile V=sc
 
-      - name: Collect KO files
+      - name: Compile v4l-dvb & TBS driver (skip olddefconfig)
         working-directory: openwrt-sdk
         run: |
-          mkdir -p ../ko_output
-          # 从编译结果中提取所有 ko 文件
-          find build_dir/ -name "*.ko" -path "*/v4l-dvb*" | xargs cp -t ../ko_output/ || true
-          # 复制 SDK 自带的基础模块
-          find staging_dir/target-*/root/lib/modules/ -name "*.ko" -exec cp {} ../ko_output/ \; 2>/dev/null || true
+          # 直接编译驱动包，不再调用 olddefconfig
+          make -j1 package/openwrt-dvb/v4l-dvb/compile V=sc
+
+      - name: Collect all DVB/TBS related KO files
+        working-directory: openwrt-sdk
+        run: |
+          mkdir -p ko_output
+          find build_dir/ -name "*.ko" -path "*/v4l-dvb*" | xargs cp -t ko_output/
+          # 额外复制 SDK 自带的基础模块
+          find staging_dir/ -name "*videobuf2*.ko" -o -name "*dvb-core*.ko" | xargs cp -t ko_output/
 
       - name: Upload KO artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tbs-dvb-ko-final
-          path: ko_output/
+          name: tbs-dvb-ko-matched
+          path: openwrt-sdk/ko_output/
           retention-days: 30
